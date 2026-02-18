@@ -191,10 +191,20 @@ class TokenPoolStats(BaseModel):
     avg_quota: float = 0.0
 
 
+class TokenListResponse(BaseModel):
+    """分页 Token 列表响应"""
+
+    items: List[dict] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 50
+
+
 __all__ = [
     "TokenStatus",
     "TokenInfo",
     "TokenPoolStats",
+    "TokenListResponse",
     "EffortType",
     "EFFORT_COST",
     "BASIC__DEFAULT_QUOTA",

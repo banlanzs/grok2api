@@ -229,6 +229,39 @@ class LocalStorage(BaseStorage):
     async def close(self):
         pass
 
+    async def load_tokens_paginated(
+        self, page: int = 1, page_size: int = 50, status: str = None
+    ):
+        """分页加载 Token（内存分页实现）"""
+        all_tokens = await self.load_tokens() or {}
+        flat_list = []
+        for pool_name, tokens in all_tokens.items():
+            if not isinstance(tokens, list):
+                continue
+            for t in tokens:
+                if isinstance(t, str):
+                    item = {"token": t, "pool": pool_name, "status": "active", "quota": 0}
+                elif isinstance(t, dict):
+                    item = dict(t)
+                    item["pool"] = pool_name
+                else:
+                    continue
+                flat_list.append(item)
+
+        if status:
+            flat_list = [t for t in flat_list if t.get("status") == status]
+
+        def sort_key(item):
+            return item.get("last_used_at") or item.get("created_at") or 0
+        flat_list.sort(key=sort_key, reverse=True)
+
+        total = len(flat_list)
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = flat_list[start:end]
+
+        return items, total
+
 
 class RedisStorage(BaseStorage):
     """
@@ -550,13 +583,32 @@ class SQLStorage(BaseStorage):
                 """)
                 )
 
-                # 索引
-                try:
-                    await conn.execute(
-                        text("CREATE INDEX idx_tokens_pool ON tokens (pool_name)")
-                    )
-                except Exception:
-                    pass
+                # 索引（分页和筛选优化）
+                indexes = [
+                    "CREATE INDEX IF NOT EXISTS idx_tokens_pool ON tokens (pool_name)",
+                    "CREATE INDEX IF NOT EXISTS idx_tokens_updated ON tokens (updated_at)",
+                ]
+                for idx in indexes:
+                    try:
+                        await conn.execute(text(idx))
+                    except Exception:
+                        pass
+
+                # MySQL/PostgreSQL 特定索引（JSON 字段筛选）
+                if self.dialect in ("mysql", "mariadb"):
+                    try:
+                        await conn.execute(
+                            text("CREATE INDEX IF NOT EXISTS idx_tokens_status ON tokens ((JSON_EXTRACT(data, '$.status')))")
+                        )
+                    except Exception:
+                        pass
+                elif self.dialect in ("postgres", "postgresql", "pgsql"):
+                    try:
+                        await conn.execute(
+                            text("CREATE INDEX IF NOT EXISTS idx_tokens_status ON tokens ((data->>'status')))")
+                        )
+                    except Exception:
+                        pass
 
                 # 尝试兼容旧表结构
                 try:
@@ -756,6 +808,58 @@ class SQLStorage(BaseStorage):
 
     async def close(self):
         await self.engine.dispose()
+
+    async def load_tokens_paginated(
+        self, page: int = 1, page_size: int = 50, status: str = None
+    ):
+        """分页加载 Token（数据库层分页）"""
+        await self._ensure_schema()
+        from sqlalchemy import text
+
+        try:
+            async with self.async_session() as session:
+                # 构建查询
+                where_clause = ""
+                params = {"limit": page_size, "offset": (page - 1) * page_size}
+
+                if status:
+                    where_clause = "WHERE JSON_EXTRACT(data, '$.status') = :status"
+                    params["status"] = status
+
+                # 查询总数
+                count_query = f"SELECT COUNT(*) FROM tokens {where_clause}"
+                count_res = await session.execute(text(count_query), params)
+                total = count_res.scalar() or 0
+
+                # 查询分页数据
+                query = f"""
+                    SELECT pool_name, data
+                    FROM tokens
+                    {where_clause}
+                    ORDER BY JSON_EXTRACT(data, '$.last_used_at') DESC,
+                             JSON_EXTRACT(data, '$.created_at') DESC
+                    LIMIT :limit OFFSET :offset
+                """
+                res = await session.execute(text(query), params)
+                rows = res.fetchall()
+
+                items = []
+                for pool_name, data_json in rows:
+                    try:
+                        if isinstance(data_json, str):
+                            t_data = json_loads(data_json)
+                        else:
+                            t_data = data_json
+                        t_data["pool"] = pool_name
+                        items.append(t_data)
+                    except Exception:
+                        pass
+
+                return items, total
+        except Exception as e:
+            logger.error(f"SQLStorage: 分页加载失败: {e}")
+            # 降级到内存分页
+            return await super().load_tokens_paginated(page, page_size, status)
 
 
 class StorageFactory:

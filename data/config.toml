@@ -1,9 +1,9 @@
 [app]
 app_url = "http://127.0.0.1:8000"
-app_key = "grok2api"
-api_key = ""
+app_key = "20050402zs@"
+api_key = "sk-banlan"
 public_enabled = true
-public_key = ""
+public_key = "banlan"
 image_format = "url"
 video_format = "html"
 temporary = true

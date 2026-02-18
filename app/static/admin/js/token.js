@@ -1,6 +1,6 @@
 let apiKey = '';
-let allTokens = {};
 let flatTokens = [];
+let totalCount = 0;
 let isBatchProcessing = false;
 let isBatchPaused = false;
 let batchQueue = [];
@@ -97,13 +97,10 @@ function syncVisibleSelectionUI(selected) {
 }
 
 function getPaginationData() {
-  const filteredTokens = getFilteredTokens();
-  const totalCount = filteredTokens.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   if (currentPage > totalPages) currentPage = totalPages;
-  const startIndex = (currentPage - 1) * pageSize;
-  const visibleTokens = filteredTokens.slice(startIndex, startIndex + pageSize);
-  return { filteredTokens, totalCount, totalPages, visibleTokens };
+  const visibleTokens = flatTokens;
+  return { filteredTokens: flatTokens, totalCount, totalPages, visibleTokens };
 }
 
 async function init() {
@@ -116,15 +113,35 @@ async function init() {
 
 async function loadData() {
   try {
-    const res = await fetch('/v1/admin/tokens', {
+    const params = new URLSearchParams({
+      page: currentPage,
+      page_size: pageSize
+    });
+
+    // 只有 active/cooling/expired 才传给后端
+    if (currentFilter && ['active', 'cooling', 'expired'].includes(currentFilter)) {
+      params.append('status', currentFilter);
+    }
+
+    const res = await fetch(`/v1/admin/tokens?${params.toString()}`, {
       headers: buildAuthHeaders(apiKey)
     });
     if (res.ok) {
       const data = await res.json();
-      allTokens = data;
-      processTokens(data);
-      updateStats(data);
+      totalCount = data.total || 0;
+
+      let items = data.items || [];
+
+      // 前端处理 nsfw/no-nsfw 筛选
+      if (currentFilter === 'nsfw') {
+        items = items.filter(t => t.tags && t.tags.includes('nsfw'));
+      } else if (currentFilter === 'no-nsfw') {
+        items = items.filter(t => !t.tags || !t.tags.includes('nsfw'));
+      }
+
+      processTokens(items);
       renderTable();
+      updateStats();
     } else if (res.status === 401) {
       logout();
     } else {
@@ -135,84 +152,71 @@ async function loadData() {
   }
 }
 
-// Convert pool dict to flattened array
-function processTokens(data) {
+function processTokens(items) {
   flatTokens = [];
-  Object.keys(data).forEach(pool => {
-    const tokens = data[pool];
-    if (Array.isArray(tokens)) {
-      tokens.forEach(t => {
-        // Normalize
-        const tObj = typeof t === 'string'
-          ? { token: t, status: 'active', quota: 0, note: '', use_count: 0, tags: [] }
-          : {
-            token: t.token,
-            status: t.status || 'active',
-            quota: t.quota || 0,
-            note: t.note || '',
-            fail_count: t.fail_count || 0,
-            use_count: t.use_count || 0,
-            tags: t.tags || [],
-            created_at: t.created_at,
-            last_used_at: t.last_used_at,
-            last_fail_at: t.last_fail_at,
-            last_fail_reason: t.last_fail_reason,
-            last_sync_at: t.last_sync_at,
-            last_asset_clear_at: t.last_asset_clear_at
-          };
-        flatTokens.push({ ...tObj, pool: pool, _selected: false });
-      });
-    }
+  if (!Array.isArray(items)) return;
+
+  items.forEach(t => {
+    const tObj = typeof t === 'string'
+      ? { token: t, status: 'active', quota: 0, note: '', use_count: 0, tags: [], pool: 'ssoBasic' }
+      : {
+        token: t.token,
+        pool: t.pool || 'ssoBasic',
+        status: t.status || 'active',
+        quota: t.quota || 0,
+        note: t.note || '',
+        fail_count: t.fail_count || 0,
+        use_count: t.use_count || 0,
+        tags: t.tags || [],
+        created_at: t.created_at,
+        last_used_at: t.last_used_at,
+        last_fail_at: t.last_fail_at,
+        last_fail_reason: t.last_fail_reason,
+        last_sync_at: t.last_sync_at,
+        last_asset_clear_at: t.last_asset_clear_at
+      };
+    flatTokens.push({ ...tObj, _selected: false });
   });
 }
 
-function updateStats(data) {
-  // Logic same as before, simplified reuse if possible, but let's re-run on flatTokens
-  let totalTokens = flatTokens.length;
-  let activeTokens = 0;
-  let coolingTokens = 0;
-  let invalidTokens = 0;
-  let nsfwTokens = 0;
-  let noNsfwTokens = 0;
-  let chatQuota = 0;
-  let totalCalls = 0;
+async function updateStats() {
+  try {
+    const res = await fetch('/v1/admin/tokens/stats', {
+      headers: buildAuthHeaders(apiKey)
+    });
+    if (!res.ok) return;
 
-  flatTokens.forEach(t => {
-    if (t.status === 'active') {
-      activeTokens++;
-      chatQuota += t.quota;
-    } else if (t.status === 'cooling') {
-      coolingTokens++;
-    } else {
-      invalidTokens++;
-    }
-    if (t.tags && t.tags.includes('nsfw')) {
-      nsfwTokens++;
-    } else {
-      noNsfwTokens++;
-    }
-    totalCalls += Number(t.use_count || 0);
-  });
+    const stats = await res.json();
 
-  const imageQuota = Math.floor(chatQuota / 2);
+    setText('stat-total', (stats.total || 0).toLocaleString());
+    setText('stat-active', (stats.active || 0).toLocaleString());
+    setText('stat-cooling', (stats.cooling || 0).toLocaleString());
+    setText('stat-invalid', ((stats.expired || 0) + (stats.disabled || 0)).toLocaleString());
 
-  setText('stat-total', totalTokens.toLocaleString());
-  setText('stat-active', activeTokens.toLocaleString());
-  setText('stat-cooling', coolingTokens.toLocaleString());
-  setText('stat-invalid', invalidTokens.toLocaleString());
+    const chatQuota = stats.total_quota || 0;
+    const imageQuota = Math.floor(chatQuota / 2);
+    setText('stat-chat-quota', chatQuota.toLocaleString());
+    setText('stat-image-quota', imageQuota.toLocaleString());
 
-  setText('stat-chat-quota', chatQuota.toLocaleString());
-  setText('stat-image-quota', imageQuota.toLocaleString());
-  setText('stat-total-calls', totalCalls.toLocaleString());
+    // 计算 totalCalls（从当前页数据）
+    let totalCalls = 0;
+    flatTokens.forEach(t => {
+      totalCalls += Number(t.use_count || 0);
+    });
+    setText('stat-total-calls', totalCalls.toLocaleString());
 
-  updateTabCounts({
-    all: totalTokens,
-    active: activeTokens,
-    cooling: coolingTokens,
-    expired: invalidTokens,
-    nsfw: nsfwTokens,
-    'no-nsfw': noNsfwTokens
-  });
+    // 更新 Tab 计数
+    updateTabCounts({
+      all: stats.total || 0,
+      active: stats.active || 0,
+      cooling: stats.cooling || 0,
+      expired: (stats.expired || 0) + (stats.disabled || 0),
+      nsfw: stats.nsfw || 0,
+      'no-nsfw': stats.no_nsfw || 0
+    });
+  } catch (e) {
+    console.error('Failed to update stats:', e);
+  }
 }
 
 function renderTable() {
@@ -222,9 +226,7 @@ function renderTable() {
 
   if (loading) loading.classList.add('hidden');
 
-  // 获取筛选后的列表
   const { totalCount, totalPages, visibleTokens } = getPaginationData();
-  const indexByRef = new Map(flatTokens.map((t, i) => [t, i]));
 
   updatePaginationControls(totalCount, totalPages);
 
@@ -242,17 +244,15 @@ function renderTable() {
   emptyState.classList.add('hidden');
 
   const fragment = document.createDocumentFragment();
-  visibleTokens.forEach((item) => {
-    // 获取原始索引用于操作
-    const originalIndex = indexByRef.get(item);
+  visibleTokens.forEach((item, index) => {
     const tr = document.createElement('tr');
-    tr.dataset.index = originalIndex;
+    tr.dataset.index = index;
     if (item._selected) tr.classList.add('row-selected');
 
     // Checkbox (Center)
     const tdCheck = document.createElement('td');
     tdCheck.className = 'text-center';
-    tdCheck.innerHTML = `<input type="checkbox" class="checkbox" ${item._selected ? 'checked' : ''} onchange="toggleSelect(${originalIndex})">`;
+    tdCheck.innerHTML = `<input type="checkbox" class="checkbox" ${item._selected ? 'checked' : ''} onchange="toggleSelect(${index})">`;
 
     // Token (Left)
     const tdToken = document.createElement('td');
@@ -305,10 +305,10 @@ function renderTable() {
                      <button onclick="refreshStatus('${item.token}')" class="p-1 text-gray-400 hover:text-black rounded" title="刷新状态">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                      </button>
-                     <button onclick="openEditModal(${originalIndex})" class="p-1 text-gray-400 hover:text-black rounded" title="编辑">
+                     <button onclick="openEditModal(${index})" class="p-1 text-gray-400 hover:text-black rounded" title="编辑">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                      </button>
-                     <button onclick="deleteToken(${originalIndex})" class="p-1 text-gray-400 hover:text-red-600 rounded" title="删除">
+                     <button onclick="deleteToken(${index})" class="p-1 text-gray-400 hover:text-red-600 rounded" title="删除">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                      </button>
                 </div>
@@ -565,29 +565,96 @@ function closeImportModal() {
 async function submitImport() {
   const pool = byId('import-pool').value.trim() || 'ssoBasic';
   const text = byId('import-text').value;
-  const lines = text.split('\n');
-  const defaultQuota = getDefaultQuotaForPool(pool);
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-  lines.forEach(line => {
-    const t = line.trim();
-    if (t && !flatTokens.some(ft => ft.token === t)) {
-      flatTokens.push({
-        token: t,
-        pool: pool,
-        status: 'active',
-        quota: defaultQuota,
-        note: '',
-        tags: [],
-        fail_count: 0,
-        use_count: 0,
-        _selected: false
-      });
-    }
-  });
+  if (lines.length === 0) {
+    showToast('请输入 Token', 'error');
+    return;
+  }
 
-  await syncToServer();
+  if (isBatchProcessing) {
+    showToast('当前有任务进行中', 'info');
+    return;
+  }
+
   closeImportModal();
-  loadData();
+
+  // 启动批量导入进度
+  isBatchProcessing = true;
+  isBatchPaused = false;
+  currentBatchAction = 'import';
+  batchTotal = lines.length;
+  batchProcessed = 0;
+  updateBatchProgress();
+  setActionButtonsState();
+
+  try {
+    const res = await fetch('/v1/admin/tokens/import/async', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(apiKey)
+      },
+      body: JSON.stringify({ tokens: lines, pool: pool })
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.status !== 'success') {
+      throw new Error(data.detail || '导入失败');
+    }
+
+    currentBatchTaskId = data.task_id;
+    BatchSSE.close(batchEventSource);
+    batchEventSource = BatchSSE.open(currentBatchTaskId, apiKey, {
+      onMessage: (msg) => {
+        if (msg.type === 'snapshot' || msg.type === 'progress') {
+          if (typeof msg.total === 'number') batchTotal = msg.total;
+          if (typeof msg.processed === 'number') batchProcessed = msg.processed;
+          updateBatchProgress();
+        } else if (msg.type === 'done') {
+          if (typeof msg.total === 'number') batchTotal = msg.total;
+          batchProcessed = batchTotal;
+          updateBatchProgress();
+          finishBatchProcess(false, { silent: true });
+
+          const summary = msg.result?.summary;
+          if (summary) {
+            const successMsg = `导入完成：成功 ${summary.success || 0} 个，失败 ${summary.fail || 0} 个`;
+            showToast(successMsg, summary.fail > 0 ? 'warning' : 'success');
+          } else {
+            showToast('导入完成', 'success');
+          }
+
+          currentBatchTaskId = null;
+          BatchSSE.close(batchEventSource);
+          batchEventSource = null;
+        } else if (msg.type === 'cancelled') {
+          finishBatchProcess(true, { silent: true });
+          showToast('已终止导入', 'info');
+          currentBatchTaskId = null;
+          BatchSSE.close(batchEventSource);
+          batchEventSource = null;
+        } else if (msg.type === 'error') {
+          finishBatchProcess(true, { silent: true });
+          showToast('导入失败: ' + (msg.error || '未知错误'), 'error');
+          currentBatchTaskId = null;
+          BatchSSE.close(batchEventSource);
+          batchEventSource = null;
+        }
+      },
+      onError: () => {
+        finishBatchProcess(true, { silent: true });
+        showToast('连接中断', 'error');
+        currentBatchTaskId = null;
+        BatchSSE.close(batchEventSource);
+        batchEventSource = null;
+      }
+    });
+  } catch (e) {
+    finishBatchProcess(true, { silent: true });
+    showToast(e.message || '导入失败', 'error');
+    currentBatchTaskId = null;
+  }
 }
 
 // Export Logic
@@ -770,6 +837,8 @@ function finishBatchProcess(aborted = false, options = {}) {
       showToast('已终止删除', 'info');
     } else if (action === 'nsfw') {
       showToast('已终止 NSFW', 'info');
+    } else if (action === 'import') {
+      showToast('已终止导入', 'info');
     } else {
       showToast('已终止刷新', 'info');
     }
@@ -778,6 +847,8 @@ function finishBatchProcess(aborted = false, options = {}) {
       showToast('删除完成', 'success');
     } else if (action === 'nsfw') {
       showToast('NSFW 开启完成', 'success');
+    } else if (action === 'import') {
+      showToast('导入完成', 'success');
     } else {
       showToast('刷新完成', 'success');
     }
@@ -846,16 +917,25 @@ async function startBatchDelete() {
   setActionButtonsState();
 
   try {
-    const toRemove = new Set(batchQueue);
-    flatTokens = flatTokens.filter(t => !toRemove.has(t.token));
-    await syncToServer();
-    batchProcessed = batchTotal;
-    updateBatchProgress();
-    finishBatchProcess(false, { silent: true });
-    showToast('删除完成', 'success');
+    const res = await fetch('/v1/admin/tokens/batch-delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(apiKey)
+      },
+      body: JSON.stringify({ ids: batchQueue })
+    });
+
+    if (!res.ok) {
+      throw new Error('删除失败');
+    }
+
+    const result = await res.json();
+    showToast(`删除完成：已删除 ${result.affected || batchTotal} 个 Token`, 'success');
+    loadData();
   } catch (e) {
     finishBatchProcess(true, { silent: true });
-    showToast('删除失败', 'error');
+    showToast('删除失败: ' + e.message, 'error');
   }
 }
 
@@ -924,27 +1004,17 @@ function filterByStatus(status) {
   currentFilter = status;
   currentPage = 1;
 
-  // 更新 Tab 样式和 ARIA
   document.querySelectorAll('.tab-item').forEach(tab => {
     const isActive = tab.dataset.filter === status;
     tab.classList.toggle('active', isActive);
     tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
 
-  renderTable();
+  loadData();
 }
 
 function getFilteredTokens() {
-  if (currentFilter === 'all') return flatTokens;
-
-  return flatTokens.filter(t => {
-    if (currentFilter === 'active') return t.status === 'active';
-    if (currentFilter === 'cooling') return t.status === 'cooling';
-    if (currentFilter === 'expired') return t.status !== 'active' && t.status !== 'cooling';
-    if (currentFilter === 'nsfw') return t.tags && t.tags.includes('nsfw');
-    if (currentFilter === 'no-nsfw') return !t.tags || !t.tags.includes('nsfw');
-    return true;
-  });
+  return flatTokens;
 }
 
 function updateTabCounts(counts) {
@@ -987,15 +1057,14 @@ function updatePaginationControls(totalCount, totalPages) {
 function goPrevPage() {
   if (currentPage <= 1) return;
   currentPage -= 1;
-  renderTable();
+  loadData();
 }
 
 function goNextPage() {
-  const totalCount = getFilteredTokens().length;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   if (currentPage >= totalPages) return;
   currentPage += 1;
-  renderTable();
+  loadData();
 }
 
 function changePageSize() {
@@ -1004,7 +1073,7 @@ function changePageSize() {
   if (!value || value === pageSize) return;
   pageSize = value;
   currentPage = 1;
-  renderTable();
+  loadData();
 }
 
 // ========== NSFW 批量开启 ==========
