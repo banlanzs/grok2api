@@ -10,7 +10,7 @@
 
 基于 **FastAPI** 重构的 Grok2API，全面适配最新 Web 调用格式，支持流/非流式对话、图像生成/编辑、视频生成/超分（文生视频 / 图生视频）、深度思考，号池并发与自动负载均衡一体化。
 
-<img width="2618" height="1658" alt="image" src="https://github.com/user-attachments/assets/a8c406f8-4c28-483a-8099-c23df5df7605" />
+<img width="4800" height="4200" alt="image" src="https://github.com/user-attachments/assets/a6669674-8afe-4ae5-bf81-a2ec1f864233" />
 
 <br>
 
@@ -318,6 +318,7 @@ curl http://localhost:8000/v1/images/edits \
 |  | `super_refresh_interval_hours` | Super 刷新间隔 | Super Token 刷新的时间间隔（小时）。 | `2` |
 |  | `fail_threshold` | 失败阈值 | 单个 Token 连续失败多少次后被标记为不可用。 | `5` |
 |  | `save_delay_ms` | 保存延迟 | Token 变更合并写入的延迟（毫秒）。 | `500` |
+|  | `usage_flush_interval_sec` | 用量落库间隔 | 用量类字段写入数据库的最小间隔（秒）。 | `5` |
 |  | `reload_interval_sec` | 同步间隔 | 多 worker 场景下 Token 状态刷新间隔（秒）。 | `30` |
 | **cache** | `enable_auto_clean` | 自动清理 | 是否启用缓存自动清理，开启后按上限自动回收。 | `true` |
 |  | `limit_mb` | 清理阈值 | 缓存大小阈值（MB），超过阈值会触发清理。 | `1024` |

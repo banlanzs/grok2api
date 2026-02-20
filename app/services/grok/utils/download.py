@@ -13,13 +13,13 @@ from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 
 import aiofiles
-from curl_cffi.requests import AsyncSession
 
 from app.core.logger import logger
 from app.core.storage import DATA_DIR
 from app.core.config import get_config
 from app.core.exceptions import AppException
 from app.services.reverse.assets_download import AssetsDownloadReverse
+from app.services.reverse.utils.session import ResettableSession
 from app.services.grok.utils.locks import _get_download_semaphore, _file_lock
 
 
@@ -27,7 +27,7 @@ class DownloadService:
     """Assets download service."""
 
     def __init__(self):
-        self._session: Optional[AsyncSession] = None
+        self._session: Optional[ResettableSession] = None
         base_dir = DATA_DIR / "tmp"
         self.image_dir = base_dir / "image"
         self.video_dir = base_dir / "video"
@@ -35,10 +35,14 @@ class DownloadService:
         self.video_dir.mkdir(parents=True, exist_ok=True)
         self._cleanup_running = False
 
-    async def create(self) -> AsyncSession:
+    async def create(self) -> ResettableSession:
         """Create or reuse a session."""
         if self._session is None:
-            self._session = AsyncSession()
+            browser = get_config("proxy.browser")
+            if browser:
+                self._session = ResettableSession(impersonate=browser)
+            else:
+                self._session = ResettableSession()
         return self._session
 
     async def close(self):
@@ -98,7 +102,7 @@ class DownloadService:
         if thumbnail_url:
             final_thumb_url = await self.resolve_url(thumbnail_url, token, "image")
         if fmt == "url":
-            return final_video_url
+            return f"{final_video_url}\n"
         if fmt == "markdown":
             return f"[video]({final_video_url})"
         import html

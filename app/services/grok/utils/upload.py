@@ -13,13 +13,13 @@ from typing import AsyncIterator, Optional, Tuple
 from urllib.parse import urlparse
 
 import aiofiles
-from curl_cffi.requests import AsyncSession
 
 from app.core.config import get_config
 from app.core.exceptions import AppException, UpstreamException, ValidationException
 from app.core.logger import logger
 from app.core.storage import DATA_DIR
 from app.services.reverse.assets_upload import AssetsUploadReverse
+from app.services.reverse.utils.session import ResettableSession
 from app.services.grok.utils.locks import _get_upload_semaphore, _file_lock
 
 
@@ -27,13 +27,17 @@ class UploadService:
     """Assets upload service."""
 
     def __init__(self):
-        self._session: Optional[AsyncSession] = None
+        self._session: Optional[ResettableSession] = None
         self._chunk_size = 64 * 1024
 
-    async def create(self) -> AsyncSession:
+    async def create(self) -> ResettableSession:
         """Create or reuse a session."""
         if self._session is None:
-            self._session = AsyncSession()
+            browser = get_config("proxy.browser")
+            if browser:
+                self._session = ResettableSession(impersonate=browser)
+            else:
+                self._session = ResettableSession()
         return self._session
 
     async def close(self):
@@ -142,7 +146,9 @@ class UploadService:
             lock_timeout = max(1, int(get_config("asset.upload_timeout")))
             async with _file_lock(lock_name, timeout=lock_timeout):
                 session = await self.create()
-                response = await session.get(url, timeout=timeout, proxies=proxies)
+                response = await session.get(
+                    url, timeout=timeout, proxies=proxies, stream=True
+                )
                 if response.status_code >= 400:
                     raise UpstreamException(
                         message=f"Failed to fetch: {response.status_code}",

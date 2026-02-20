@@ -10,7 +10,7 @@
 
 Grok2API rebuilt with **FastAPI**, fully aligned with the latest web call format. Supports streaming/non-streaming chat, image generation/editing, video generation/upscale (text-to-video and image-to-video), deep reasoning, token pool concurrency, and automatic load balancing.
 
-<img width="2618" height="1658" alt="image" src="https://github.com/user-attachments/assets/a8c406f8-4c28-483a-8099-c23df5df7605" />
+<img width="4800" height="4200" alt="image" src="https://github.com/user-attachments/assets/a6669674-8afe-4ae5-bf81-a2ec1f864233" />
 
 <br>
 
@@ -318,6 +318,7 @@ Config file: `data/config.toml`
 |  | `super_refresh_interval_hours` | Super refresh interval | Super token refresh interval (hours). | `2` |
 |  | `fail_threshold` | Fail threshold | Consecutive failures to disable. | `5` |
 |  | `save_delay_ms` | Save delay | Merge write delay (ms). | `500` |
+|  | `usage_flush_interval_sec` | Usage flush interval | Minimum interval to flush usage fields to DB (seconds). | `5` |
 |  | `reload_interval_sec` | Reload interval | Multi-worker token reload interval (seconds). | `30` |
 | **cache** | `enable_auto_clean` | Auto clean | Enable cache auto cleanup. | `true` |
 |  | `limit_mb` | Size limit | Cleanup threshold (MB). | `1024` |

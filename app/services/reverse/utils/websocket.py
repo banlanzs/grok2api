@@ -6,7 +6,7 @@ import ssl
 import certifi
 import aiohttp
 from aiohttp_socks import ProxyConnector
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Any
 from urllib.parse import urlparse
 
 from app.core.logger import logger
@@ -91,7 +91,7 @@ class WebSocketClient:
     """WebSocket client with proxy support."""
 
     def __init__(self, proxy: Optional[str] = None) -> None:
-        self.proxy = proxy or get_config("proxy.base_proxy_url")
+        self._proxy_override = proxy
         self._ssl_context = _default_ssl_context()
 
     async def connect(
@@ -111,8 +111,10 @@ class WebSocketClient:
         Returns:
             WebSocketConnection: The WebSocket connection.
         """
-        # Resolve proxy
-        connector, proxy = resolve_proxy(self.proxy, self._ssl_context)
+        # Resolve proxy dynamically from config if not overridden
+        proxy_url = self._proxy_override or get_config("proxy.base_proxy_url")
+        connector, resolved_proxy = resolve_proxy(proxy_url, self._ssl_context)
+        logger.debug(f"WebSocket connect: proxy_url={proxy_url}, resolved_proxy={resolved_proxy}, connector={type(connector).__name__}")
 
         # Build client timeout
         total_timeout = (
@@ -125,11 +127,12 @@ class WebSocketClient:
         # Create session
         session = aiohttp.ClientSession(connector=connector, timeout=client_timeout)
         try:
-            extra_kwargs = dict(ws_kwargs or {})
+            # Cast to Any to avoid Pylance errors with **extra_kwargs
+            extra_kwargs: dict[str, Any] = dict(ws_kwargs or {})
             ws = await session.ws_connect(
                 url,
                 headers=headers,
-                proxy=proxy,
+                proxy=resolved_proxy,
                 ssl=self._ssl_context,
                 **extra_kwargs,
             )

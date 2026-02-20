@@ -5,11 +5,10 @@ Batch usage service.
 import asyncio
 from typing import Callable, Awaitable, Dict, Any, Optional, List
 
-from curl_cffi.requests import AsyncSession
-
 from app.core.logger import logger
 from app.core.config import get_config
 from app.services.reverse.rate_limits import RateLimitsReverse
+from app.services.reverse.utils.session import ResettableSession
 from app.core.batch import run_batch
 
 _USAGE_SEMAPHORE = None
@@ -43,7 +42,12 @@ class UsageService:
         """
         async with _get_usage_semaphore():
             try:
-                async with AsyncSession() as session:
+                browser = get_config("proxy.browser")
+                if browser:
+                    session_ctx = ResettableSession(impersonate=browser)
+                else:
+                    session_ctx = ResettableSession()
+                async with session_ctx as session:
                     response = await RateLimitsReverse.request(session, token)
                 data = response.json()
                 remaining = data.get("remainingTokens")
