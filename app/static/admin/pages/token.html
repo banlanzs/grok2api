@@ -231,11 +231,61 @@
             <option value="ssoSuper">ssoSuper</option>
           </select>
         </div>
+        
+        <!-- 导入方式选择 -->
         <div>
+          <label class="modal-label mb-2 block">导入方式</label>
+          <div class="flex gap-2">
+            <button type="button" id="import-mode-text" class="geist-button-outline text-xs px-4 py-2 flex-1" onclick="switchImportMode('text')">
+              手动粘贴
+            </button>
+            <button type="button" id="import-mode-file" class="geist-button-outline text-xs px-4 py-2 flex-1" onclick="switchImportMode('file')">
+              文件上传
+            </button>
+          </div>
+        </div>
+
+        <!-- 手动粘贴模式 -->
+        <div id="import-text-container">
           <label class="modal-label mb-1 block">Token 列表 (每行一个)</label>
           <textarea id="import-text" class="geist-input font-mono h-48"
             placeholder="粘贴 Token，一行一个..."></textarea>
         </div>
+
+        <!-- 文件上传模式 -->
+        <div id="import-file-container" class="hidden">
+          <label class="modal-label mb-1 block">选择 Token 文件 (.txt)</label>
+          <div class="border-2 border-dashed border-[var(--border)] rounded-lg p-6 text-center hover:border-[var(--accents-5)] transition-colors cursor-pointer"
+               onclick="document.getElementById('import-file-input').click()">
+            <input type="file" id="import-file-input" accept=".txt" class="hidden" onchange="handleFileSelect(event)">
+            <svg class="mx-auto mb-2 text-[var(--accents-4)]" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <p class="text-sm text-[var(--accents-5)] mb-1">点击选择文件或拖拽文件到此处</p>
+            <p class="text-xs text-[var(--accents-4)]">支持 .txt 文件，每行一个 Token</p>
+          </div>
+          <div id="file-info" class="hidden mt-2 p-3 bg-[var(--accents-1)] rounded text-sm">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span id="file-name" class="font-medium"></span>
+              </div>
+              <button type="button" onclick="clearFileSelect()" class="text-[var(--accents-5)] hover:text-red-600">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <p id="file-stats" class="text-xs text-[var(--accents-5)] mt-1"></p>
+          </div>
+        </div>
+
         <div class="flex justify-end gap-2 pt-2">
           <button onclick="closeImportModal()" class="geist-button-outline text-xs px-3">取消</button>
           <button onclick="submitImport()" class="geist-button text-xs px-3">开始导入</button>

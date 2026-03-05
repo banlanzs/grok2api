@@ -356,3 +356,48 @@
       background: #e5e5e5;
       margin: 0 4px;
     }
+
+    /* File Upload Styles */
+    .file-upload-area {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .file-upload-area:hover {
+      border-color: var(--accents-5);
+      background: var(--accents-1);
+    }
+
+    .file-upload-area.dragover {
+      border-color: #000;
+      background: var(--accents-2);
+    }
+
+    #import-file-container input[type="file"] {
+      display: none;
+    }
+
+    #file-info {
+      background: var(--accents-1);
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 8px;
+    }
+
+    /* Import Mode Buttons */
+    #import-mode-text.geist-button,
+    #import-mode-file.geist-button {
+      background: #000;
+      color: #fff;
+      border-color: #000;
+    }
+
+    #import-mode-text.geist-button:hover,
+    #import-mode-file.geist-button:hover {
+      background: #333;
+      border-color: #333;
+    }

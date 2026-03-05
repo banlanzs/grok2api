@@ -585,23 +585,165 @@ async function syncToServer() {
 }
 
 // Import Logic
+let currentImportMode = 'text'; // 'text' or 'file'
+let selectedFile = null;
+
 function openImportModal() {
+  currentImportMode = 'text';
+  selectedFile = null;
+  switchImportMode('text');
   openModal('import-modal');
+  setupFileDragDrop();
 }
 
 function closeImportModal() {
   closeModal('import-modal', () => {
-    const input = byId('import-text');
-    if (input) input.value = '';
+    const textInput = byId('import-text');
+    const fileInput = byId('import-file-input');
+    if (textInput) textInput.value = '';
+    if (fileInput) fileInput.value = '';
+    selectedFile = null;
+    clearFileSelect();
   });
+}
+
+function switchImportMode(mode) {
+  currentImportMode = mode;
+  
+  const textContainer = byId('import-text-container');
+  const fileContainer = byId('import-file-container');
+  const textBtn = byId('import-mode-text');
+  const fileBtn = byId('import-mode-file');
+  
+  if (mode === 'text') {
+    textContainer.classList.remove('hidden');
+    fileContainer.classList.add('hidden');
+    textBtn.classList.add('geist-button');
+    textBtn.classList.remove('geist-button-outline');
+    fileBtn.classList.remove('geist-button');
+    fileBtn.classList.add('geist-button-outline');
+  } else {
+    textContainer.classList.add('hidden');
+    fileContainer.classList.remove('hidden');
+    textBtn.classList.remove('geist-button');
+    textBtn.classList.add('geist-button-outline');
+    fileBtn.classList.add('geist-button');
+    fileBtn.classList.remove('geist-button-outline');
+  }
+}
+
+function setupFileDragDrop() {
+  const dropArea = document.querySelector('#import-file-container .border-dashed');
+  if (!dropArea) return;
+
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropArea.addEventListener(eventName, preventDefaults, false);
+  });
+
+  function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropArea.addEventListener(eventName, () => {
+      dropArea.classList.add('dragover');
+    }, false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropArea.addEventListener(eventName, () => {
+      dropArea.classList.remove('dragover');
+    }, false);
+  });
+
+  dropArea.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    if (files.length > 0) {
+      const fileInput = byId('import-file-input');
+      if (fileInput) {
+        fileInput.files = files;
+        handleFileSelect({ target: fileInput });
+      }
+    }
+  }, false);
+}
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  // 检查文件类型
+  if (!file.name.endsWith('.txt')) {
+    showToast('请选择 .txt 文件', 'error');
+    event.target.value = '';
+    return;
+  }
+  
+  // 检查文件大小（限制 10MB）
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('文件大小不能超过 10MB', 'error');
+    event.target.value = '';
+    return;
+  }
+  
+  selectedFile = file;
+  
+  // 读取文件内容以显示统计信息
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const content = e.target.result;
+    const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+    
+    // 显示文件信息
+    const fileInfo = byId('file-info');
+    const fileName = byId('file-name');
+    const fileStats = byId('file-stats');
+    
+    if (fileInfo) fileInfo.classList.remove('hidden');
+    if (fileName) fileName.textContent = file.name;
+    if (fileStats) {
+      const sizeKB = (file.size / 1024).toFixed(2);
+      fileStats.textContent = `${lines.length} 个 Token · ${sizeKB} KB`;
+    }
+  };
+  reader.readAsText(file);
+}
+
+function clearFileSelect() {
+  selectedFile = null;
+  const fileInput = byId('import-file-input');
+  const fileInfo = byId('file-info');
+  if (fileInput) fileInput.value = '';
+  if (fileInfo) fileInfo.classList.add('hidden');
 }
 
 async function submitImport() {
   const pool = byId('import-pool').value.trim() || 'ssoBasic';
-  const text = byId('import-text').value;
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  let tokens = [];
+  
+  if (currentImportMode === 'text') {
+    // 手动粘贴模式
+    const text = byId('import-text').value;
+    tokens = text.split('\n').map(l => l.trim()).filter(l => l);
+  } else {
+    // 文件上传模式
+    if (!selectedFile) {
+      showToast('请选择文件', 'error');
+      return;
+    }
+    
+    try {
+      const content = await readFileAsText(selectedFile);
+      tokens = content.split('\n').map(l => l.trim()).filter(l => l);
+    } catch (e) {
+      showToast('读取文件失败: ' + e.message, 'error');
+      return;
+    }
+  }
 
-  if (lines.length === 0) {
+  if (tokens.length === 0) {
     showToast('请输入 Token', 'error');
     return;
   }
@@ -617,7 +759,7 @@ async function submitImport() {
   isBatchProcessing = true;
   isBatchPaused = false;
   currentBatchAction = 'import';
-  batchTotal = lines.length;
+  batchTotal = tokens.length;
   batchProcessed = 0;
   updateBatchProgress();
   setActionButtonsState();
@@ -629,7 +771,7 @@ async function submitImport() {
         'Content-Type': 'application/json',
         ...buildAuthHeaders(apiKey)
       },
-      body: JSON.stringify({ tokens: lines, pool: pool })
+      body: JSON.stringify({ tokens: tokens, pool: pool })
     });
 
     const data = await res.json();
@@ -689,6 +831,16 @@ async function submitImport() {
     showToast(e.message || '导入失败', 'error');
     currentBatchTaskId = null;
   }
+}
+
+// 辅助函数：读取文件为文本
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = (e) => reject(new Error('文件读取失败'));
+    reader.readAsText(file);
+  });
 }
 
 // Export Logic
