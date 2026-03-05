@@ -311,7 +311,8 @@ async def import_tokens_async(data: dict):
                 # 分片大小
                 batch_size = 100
                 success_count = 0
-                fail_count = 0
+                skipped_count = 0  # 跳过的重复 token
+                fail_count = 0     # 真正失败的 token
 
                 async with storage.acquire_lock("tokens_save", timeout=30):
                     existing = await storage.load_tokens() or {}
@@ -337,26 +338,31 @@ async def import_tokens_async(data: dict):
 
                         for token_str in batch:
                             if token_str in existing_tokens:
-                                fail_count += 1
-                                task.record(False)
+                                skipped_count += 1
+                                task.record(True)  # 跳过也算成功
                                 continue
 
-                            # 添加新 token
-                            from app.services.token.models import TokenInfo
-                            default_quota = 140 if pool == "ssoSuper" else 80
+                            try:
+                                # 添加新 token
+                                from app.services.token.models import TokenInfo
+                                default_quota = 140 if pool == "ssoSuper" else 80
 
-                            token_info = TokenInfo(
-                                token=token_str,
-                                status="active",
-                                quota=default_quota,
-                                note="",
-                                tags=[],
-                            )
+                                token_info = TokenInfo(
+                                    token=token_str,
+                                    status="active",
+                                    quota=default_quota,
+                                    note="",
+                                    tags=[],
+                                )
 
-                            existing[pool].append(token_info.model_dump())
-                            existing_tokens.add(token_str)
-                            success_count += 1
-                            task.record(True)
+                                existing[pool].append(token_info.model_dump())
+                                existing_tokens.add(token_str)
+                                success_count += 1
+                                task.record(True)
+                            except Exception as e:
+                                logger.warning(f"Failed to add token: {e}")
+                                fail_count += 1
+                                task.record(False)
 
                         # 每批次保存一次
                         await storage.save_tokens(existing)
@@ -377,6 +383,7 @@ async def import_tokens_async(data: dict):
                     "summary": {
                         "total": len(unique_tokens),
                         "success": success_count,
+                        "skipped": skipped_count,
                         "fail": fail_count,
                     },
                 }

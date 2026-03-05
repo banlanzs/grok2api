@@ -795,8 +795,20 @@ async function submitImport() {
 
           const summary = msg.result?.summary;
           if (summary) {
-            const successMsg = `导入完成：成功 ${summary.success || 0} 个，失败 ${summary.fail || 0} 个`;
-            showToast(successMsg, summary.fail > 0 ? 'warning' : 'success');
+            const successCount = summary.success || 0;
+            const skippedCount = summary.skipped || 0;
+            const failCount = summary.fail || 0;
+            
+            let successMsg = `导入完成：新增 ${successCount} 个`;
+            if (skippedCount > 0) {
+              successMsg += `，跳过重复 ${skippedCount} 个`;
+            }
+            if (failCount > 0) {
+              successMsg += `，失败 ${failCount} 个`;
+            }
+            
+            const toastType = failCount > 0 ? 'warning' : (skippedCount > 0 ? 'info' : 'success');
+            showToast(successMsg, toastType);
           } else {
             showToast('导入完成', 'success');
           }
