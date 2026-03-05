@@ -13,6 +13,9 @@ ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 # 配置 Alpine 使用国内镜像源（阿里云）- 提高下载速度和稳定性
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
+# 更新包索引
+RUN apk update
+
 # 安装构建依赖（cryptography 和 curl-cffi 需要这些）
 RUN apk add --no-cache \
     tzdata \
@@ -24,8 +27,7 @@ RUN apk add --no-cache \
     linux-headers \
     libffi-dev \
     openssl-dev \
-    curl-dev \
-    python3-dev
+    curl-dev
 
 WORKDIR /app
 
