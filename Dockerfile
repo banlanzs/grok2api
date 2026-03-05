@@ -1,5 +1,6 @@
 FROM python:3.13-alpine AS builder
 
+# TUN 模式下不需要手动配置代理
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai \
@@ -9,16 +10,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # 确保 uv 的 bin 目录
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 
+# 配置 Alpine 使用国内镜像源（阿里云）- 提高下载速度和稳定性
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 安装构建依赖（cryptography 和 curl-cffi 需要这些）
 RUN apk add --no-cache \
     tzdata \
     ca-certificates \
-    build-base \
+    gcc \
+    g++ \
+    make \
+    musl-dev \
     linux-headers \
     libffi-dev \
     openssl-dev \
     curl-dev \
-    cargo \
-    rust
+    python3-dev
 
 WORKDIR /app
 
@@ -44,6 +51,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIRTUAL_ENV=/opt/venv
 
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# 配置 Alpine 使用国内镜像源（阿里云）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 RUN apk add --no-cache \
     tzdata \

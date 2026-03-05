@@ -240,6 +240,50 @@ async def get_tokens_stats():
     return stats
 
 
+@router.get("/tokens/export", dependencies=[Depends(verify_app_key)])
+async def export_all_tokens(
+    status: Optional[str] = Query(None, description="状态筛选"),
+):
+    """导出所有 Token（支持状态筛选）"""
+    storage = get_storage()
+    all_tokens = await storage.load_tokens() or {}
+
+    tokens_list = []
+    for pool_name, tokens in all_tokens.items():
+        if not isinstance(tokens, list):
+            continue
+        for t in tokens:
+            if isinstance(t, str):
+                token_str = t
+                token_status = "active"
+                token_tags = []
+            elif isinstance(t, dict):
+                token_str = t.get("token")
+                token_status = t.get("status", "active")
+                token_tags = t.get("tags", [])
+            else:
+                continue
+
+            if not token_str:
+                continue
+
+            # 应用状态筛选
+            if status:
+                if status == "nsfw":
+                    if not (token_tags and "nsfw" in token_tags):
+                        continue
+                elif status == "no-nsfw":
+                    if token_tags and "nsfw" in token_tags:
+                        continue
+                elif status in ["active", "cooling", "expired"]:
+                    if token_status != status:
+                        continue
+
+            tokens_list.append(token_str)
+
+    return {"tokens": tokens_list, "total": len(tokens_list)}
+
+
 @router.post("/tokens/import/async", dependencies=[Depends(verify_app_key)])
 async def import_tokens_async(data: dict):
     """异步导入 Token（分片处理）"""

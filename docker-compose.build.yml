@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # TUN 模式已经全局代理，不需要额外配置
     ports:
       - "8000:8000"
     environment:

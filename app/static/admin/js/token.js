@@ -398,6 +398,40 @@ function batchExport() {
   downloadTextFile(content, `tokens_export_selected_${new Date().toISOString().slice(0, 10)}.txt`);
 }
 
+// Export all tokens (with current filter)
+async function exportAllTokens() {
+  try {
+    const params = new URLSearchParams();
+    
+    // 应用当前筛选条件
+    if (currentFilter && ['active', 'cooling', 'expired', 'nsfw', 'no-nsfw'].includes(currentFilter)) {
+      params.append('status', currentFilter);
+    }
+
+    const res = await fetch(`/v1/admin/tokens/export?${params.toString()}`, {
+      headers: buildAuthHeaders(apiKey)
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    const tokens = data.tokens || [];
+
+    if (tokens.length === 0) {
+      return showToast("没有可导出的 Token", 'info');
+    }
+
+    const content = tokens.join('\n') + '\n';
+    const filterSuffix = currentFilter && currentFilter !== 'all' ? `_${currentFilter}` : '';
+    downloadTextFile(content, `tokens_export_all${filterSuffix}_${new Date().toISOString().slice(0, 10)}.txt`);
+    showToast(`已导出 ${tokens.length} 个 Token`, 'success');
+  } catch (e) {
+    showToast('导出失败: ' + e.message, 'error');
+  }
+}
+
 
 // Modal Logic
 let currentEditIndex = -1;
